@@ -1,0 +1,149 @@
+services:
+  # ----------------------------------------------------------------------------
+  # Apache Kafka (KRaft mode - Single Broker without Zookeeper)
+  # ----------------------------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: fluxdesk-kafka
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,DOCKER://0.0.0.0:9094'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092,DOCKER://kafka:9094'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,DOCKER:PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'DOCKER'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      CLUSTER_ID: '4L622nShTWWkrFuMm5IGcg'
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 15s
+    networks:
+      - fluxdesk-network
+
+  # ----------------------------------------------------------------------------
+  # Kafka Topic Initialization Job
+  # Creates partitions, retention policies and dead-letter queues
+  # ----------------------------------------------------------------------------
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: fluxdesk-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - fluxdesk-network
+    entrypoint: [ "bash", "-c" ]
+    command: |
+      "
+      echo 'Waiting for Kafka broker to be available...'
+      kafka-topics --bootstrap-server kafka:9094 --list
+
+      echo 'Creating Kafka topics with multi-tenant partitioning...'
+      kafka-topics --bootstrap-server kafka:9094 --create --if-not-exists --topic ticket.incoming --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9094 --create --if-not-exists --topic ticket.processed --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9094 --create --if-not-exists --topic ticket.dlq --partitions 1 --replication-factor 1
+
+      echo 'Kafka topics created successfully:'
+      kafka-topics --bootstrap-server kafka:9094 --list
+      "
+
+  # ----------------------------------------------------------------------------
+  # Redis 7.2 (Sliding-Window Rate Limiting & Pub/Sub Hub)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: fluxdesk-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - fluxdesk-network
+
+  # ----------------------------------------------------------------------------
+  # Kafka UI (Web Dashboard to inspect Topics, Partitions, Consumer Groups & Messages)
+  # ----------------------------------------------------------------------------
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: fluxdesk-kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-fluxdesk
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9094
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - fluxdesk-network
+
+  # ----------------------------------------------------------------------------
+  # Redis Commander (Web Dashboard to view Keys, TTLs, ZSETs & Pub/Sub)
+  # ----------------------------------------------------------------------------
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: fluxdesk-redis-commander
+    ports:
+      - "8081:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - fluxdesk-network
+
+  # ----------------------------------------------------------------------------
+  # MongoDB 7.0 (Multi-Tenant Document Store)
+  # ----------------------------------------------------------------------------
+  mongodb:
+    image: mongo:7.0
+    container_name: fluxdesk-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: fluxdesk
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - fluxdesk-network
+
+networks:
+  fluxdesk-network:
+    name: fluxdesk-network
+    driver: bridge
+
+volumes:
+  kafka_data:
+    name: fluxdesk-kafka-data
+  redis_data:
+    name: fluxdesk-redis-data
+  mongodb_data:
+    name: fluxdesk-mongodb-data

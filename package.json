@@ -1,0 +1,34 @@
+{
+  "name": "fluxdesk",
+  "version": "1.0.0",
+  "description": "Enterprise-Grade Multi-Tenant Event-Driven Customer Support Intelligence Engine",
+  "private": true,
+  "scripts": {
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:check": "node scripts/verify-infra.js",
+    "seed": "node scripts/seed-tenants.js",
+    "dev:server": "npm --prefix server run dev",
+    "start:server": "npm --prefix server start",
+    "test:phase2": "node scripts/verify-phase2.js",
+    "dev:worker": "npm --prefix worker run dev",
+    "start:worker": "npm --prefix worker start",
+    "test:phase3": "node scripts/verify-phase3.js",
+    "test:phase4": "node scripts/verify-phase4.js"
+  },
+  "workspaces": [
+    "server",
+    "worker"
+  ],
+  "keywords": [
+    "kafka",
+    "redis",
+    "mongodb",
+    "gemini",
+    "multi-tenant",
+    "rate-limiting",
+    "event-driven"
+  ],
+  "author": "",
+  "license": "MIT"
+}
