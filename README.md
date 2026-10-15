@@ -1,4 +1,4 @@
-# ⚡ FluxDesk
+# FluxDesk
 
 > **Enterprise-Grade Multi-Tenant Event-Driven Customer Support Intelligence Engine**
 
@@ -6,7 +6,7 @@ FluxDesk is a high-throughput, distributed customer support platform designed to
 
 ---
 
-## 🎯 Architecture Highlights
+## Architecture Highlights
 
 * **Sub-25ms Ingestion Latency:** Edge API Gateway immediately validates tenant authorization and pushes tickets into Kafka topics, returning HTTP `202 Accepted` to customers without waiting for AI pipelines.
 * **Distributed Sliding-Window Rate Limiting:** Enforced via Redis Sorted Sets (`ZSET`) to isolate tenant burst traffic and prevent noisy-neighbor starvation.
@@ -17,7 +17,7 @@ FluxDesk is a high-throughput, distributed customer support platform designed to
 
 ---
 
-## 🏗️ System Overview
+## System Overview
 
 ```mermaid
 flowchart LR
@@ -37,17 +37,17 @@ flowchart LR
 
 ---
 
-## 📋 Engineering Phases
+##  Engineering Phases
 
 | Phase | Milestone | Description | Status |
 | :---: | :--- | :--- | :---: |
-| **0** | **System Design & RFC-001** | Architecture specification, data models, event contracts, failure modes | **Complete** ✅ |
-| **1** | **Infrastructure Provisioning** | Docker Compose with Kafka (KRaft), Redis, MongoDB, health checks | **Complete** ✅ |
-| **2** | **Ingestion API Service** | Express Gateway, Redis sliding-window rate limiter, Kafka producer | **Complete** ✅ |
-| **3** | **AI Worker Fleet** | Kafka consumer group, Gemini AI structured triage, MongoDB storage | **Complete** ✅ |
-| **4** | **Real-Time Fabric** | Redis Pub/Sub multiplexer & WebSocket gateway | **Complete** ✅ |
-| **5** | **Operations Dashboard** | React + Vite + Tailwind agent workspace with real-time updates | Next ⏳ |
-| **6** | **Resilience & Production Polish** | DLQ handler, chaos/retry tests, resume metrics & portfolio showcase | Queued ⏳ |
+| **0** | **System Design & RFC-001** | Architecture specification, data models, event contracts, failure modes | **Complete** |
+| **1** | **Infrastructure Provisioning** | Docker Compose with Kafka (KRaft), Redis, MongoDB, health checks | **Complete** |
+| **2** | **Ingestion API Service** | Express Gateway, Redis sliding-window rate limiter, Kafka producer | **Complete**  |
+| **3** | **AI Worker Fleet** | Kafka consumer group, Gemini AI structured triage, MongoDB storage | **Complete**  |
+| **4** | **Real-Time Fabric** | Redis Pub/Sub multiplexer & WebSocket gateway | **Complete**  |
+| **5** | **Operations Dashboard** | React + Vite + Tailwind agent workspace with real-time updates | Next  |
+| **6** | **Resilience & Production Polish** | DLQ handler, chaos/retry tests, resume metrics & portfolio showcase | Queued  |
 
 ---
 
