@@ -83,7 +83,7 @@ cp .env.example .env
 Ensure your `GEMINI_API_KEY` is set in `.env` for AI classification.
 
 ### 4. Seed Multi-Tenant Organizations
-Seeds pre-configured tenants across Enterprise, Pro, and Free tiers:
+Seeds pre-configured tenants and agents across Enterprise, Pro, and Free tiers:
 ```bash
 npm run seed
 ```
