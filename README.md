@@ -122,6 +122,128 @@ This automated suite verifies:
 
 ---
 
+## REST API Reference
+
+### 1. Ingest Ticket (`POST /api/v1/tickets`)
+High-speed edge ingestion gateway. Authenticates tenant credentials, checks the Redis sliding-window quota, emits the ticket event into Apache Kafka, and returns `202 Accepted` in `<25ms`.
+
+* **Method:** `POST`
+* **URL:** `http://localhost:4000/api/v1/tickets`
+* **Headers:**
+  * `Content-Type: application/json`
+  * `x-api-key`: Tenant API key (e.g. `flx_live_stripe_77b31c99`)
+* **Request Body:**
+  ```json
+  {
+    "title": "Payment gateway timeout on checkout",
+    "description": "Customers are encountering 504 Gateway Timeout when submitting credit card payments on EU store.",
+    "customer": {
+      "name": "Jane Doe",
+      "email": "jane@example.com"
+    },
+    "channel": "API",
+    "metadata": {
+      "environment": "production",
+      "region": "eu-central-1"
+    }
+  }
+  ```
+
+#### Responses:
+* **`202 Accepted`** (Ticket successfully accepted and queued):
+  ```json
+  {
+    "success": true,
+    "ticketId": "tkt_1729000000000_a1b2c3",
+    "status": "QUEUED",
+    "tenantId": "org_stripe_alpha",
+    "message": "Ticket accepted and queued for processing",
+    "latencyMs": 18
+  }
+  ```
+* **`429 Too Many Requests`** (Rate limit quota exceeded for tenant tier):
+  ```json
+  {
+    "error": "Too Many Requests",
+    "message": "Rate limit exceeded for plan PRO. Max 30 requests per minute.",
+    "retryAfterSeconds": 24
+  }
+  ```
+* **`401 Unauthorized`** (Missing or invalid API key):
+  ```json
+  {
+    "error": "Unauthorized",
+    "message": "Valid API key or authorization header is required."
+  }
+  ```
+
+#### cURL Example:
+```bash
+curl -X POST http://localhost:4000/api/v1/tickets \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: flx_live_stripe_77b31c99" \
+  -d '{
+    "title": "Webhook signature verification error",
+    "description": "HMAC verification failing after SDK v4.2 update.",
+    "customer": { "name": "Alex Smith", "email": "alex@company.com" },
+    "channel": "API"
+  }'
+```
+
+---
+
+### 2. List Tickets (`GET /api/v1/tickets`)
+Fetch paginated tickets for the authenticated tenant with optional status and urgency filters.
+
+* **Method:** `GET`
+* **URL:** `http://localhost:4000/api/v1/tickets?status=TRIAGED&urgency=HIGH&page=1&limit=20`
+* **Headers:** `x-api-key: flx_live_stripe_77b31c99` (or `Authorization: Bearer <jwt_token>`)
+* **Response (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "tickets": [
+      {
+        "ticketId": "tkt_1729000000000_a1b2c3",
+        "status": "TRIAGED",
+        "urgency": "HIGH",
+        "category": "Billing",
+        "confidenceScore": 0.94,
+        "suggestedReply": "We have escalated this to our payment integrations team...",
+        "createdAt": "2026-10-17T10:00:00.000Z"
+      }
+    ],
+    "pagination": { "page": 1, "limit": 20, "total": 14 }
+  }
+  ```
+
+---
+
+### 3. Get Ticket Details (`GET /api/v1/tickets/:id`)
+Retrieve full ticket details including the AI triage analysis, reasoning, and suggested reply.
+
+* **Method:** `GET`
+* **URL:** `http://localhost:4000/api/v1/tickets/tkt_1729000000000_a1b2c3`
+* **Headers:** `x-api-key: flx_live_stripe_77b31c99` (or `Authorization: Bearer <jwt_token>`)
+
+---
+
+### 4. Review / Update Ticket (`PATCH /api/v1/tickets/:id`)
+Update ticket status or record human agent review. Emits a `TICKET_UPDATED` event live across all tenant WebSocket subscribers.
+
+* **Method:** `PATCH`
+* **URL:** `http://localhost:4000/api/v1/tickets/tkt_1729000000000_a1b2c3`
+* **Headers:** `x-api-key: flx_live_stripe_77b31c99` (or `Authorization: Bearer <jwt_token>`)
+* **Request Body:**
+  ```json
+  {
+    "status": "RESOLVED",
+    "agentReply": "The webhook issue was identified as a raw body parser conflict and is now resolved."
+  }
+  ```
+
+---
+
 ## Real-Time WebSocket API Specification
 
 ### Connection Endpoint
