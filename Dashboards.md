@@ -1,95 +1,64 @@
-Start - docker compose up -d
+# FluxDesk Operations & Observability Guide
 
----
+### Quick Start Infrastructure
 
-Kafka Dashboard - http://localhost:8080/
+```bash
+docker compose up -d
+```
 
----
-
-Redis Dashboard - http://localhost:8081/
-
----
-
-Whenever you start working or want to verify if your local databases/brokers are running before starting the app, you simply run in terminal:
-
+Verify supporting databases and message brokers:
 ```bash
 node scripts/verify-infra.js
 ```
 
-If everything says ✅ [READY], you know your backend has all its supporting services healthy!
+---
+
+### Management Dashboards
+
+| Dashboard | URL | Purpose |
+| :--- | :--- | :--- |
+| **Kafka UI** | http://localhost:8080/ | Inspect topics (`ticket.incoming`, `ticket.processed`, `ticket.dlq`), partition distribution, and consumer group lag. |
+| **Redis Commander** | http://localhost:8081/ | Inspect tenant sliding-window rate limit sorted sets (`rate:tenant:*`) and live pub/sub channels. |
 
 ---
 
-### Phase 2: Ingestion API Service & Verification
+### Running the Services
 
 1. **Seed Tenant Organizations & Agents:**
    ```bash
-   node scripts/seed-tenants.js
+   npm run seed
    ```
 
-2. **Start Edge Ingestion Gateway Server:**
+2. **Start Edge Ingestion Gateway & WebSocket Server:**
    ```bash
-   npm run start:server
-   # or for live reloading:
    npm run dev:server
    ```
    * Health Check: http://localhost:4000/health
    * Ingestion API: `POST http://localhost:4000/api/v1/tickets`
+   * Real-Time Stats: `GET http://localhost:4000/api/v1/realtime/stats`
+   * WebSocket Gateway: `ws://localhost:4000/ws`
 
-3. **Run Phase 2 End-to-End Test Suite:**
+3. **Start Asynchronous AI Worker Fleet:**
    ```bash
-   npm run test:phase2
-   ```
-
----
-
-### Phase 3: AI Worker Fleet & Intelligent Triage
-
-1. **Start AI Worker Fleet:**
-   ```bash
-   npm run start:worker
-   # or for development live reloading:
    npm run dev:worker
    ```
    * Worker Health Check: http://localhost:4001/health
-   * Worker Metrics: http://localhost:4001/metrics
-
-2. **Run Phase 3 End-to-End Test Suite:**
-   ```bash
-   npm run test:phase3
-   ```
-   * Automatically validates multi-tenant ticket consumption from Kafka `ticket.incoming`.
-   * Verifies Google Gemini structured output triage (`urgency`, `category`, `reasoning`, `suggestedReply`, `confidenceScore`).
-   * Validates tenant runbook grounding and referenced documentation.
-   * Verifies MongoDB compound indexed persistence and `ticket.processed` event publishing.
-   * Tests Dead-Letter Queue (DLQ) routing on `ticket.dlq` for poison-pill messages.
+   * Worker Prometheus Metrics: http://localhost:4001/metrics
 
 ---
 
-### Phase 4: Real-Time Event Fabric & WebSockets Gateway
+### End-to-End Verification
 
-1. **WebSocket Gateway Connection:**
-   * URL: `ws://localhost:4000/ws`
-   * Authentication Parameters:
-     * Support Agent JWT: `ws://localhost:4000/ws?token=<jwt_token>`
-     * Tenant API Key: `ws://localhost:4000/ws?apiKey=flx_live_stripe_77b31c99`
-     * Headers supported: `Authorization: Bearer <token>`, `x-api-key`, `x-tenant-id`
+To run the complete automated test suite validating the entire distributed pipeline:
 
-2. **Real-Time Telemetry & Metrics:**
-   * Health Check: http://localhost:4000/health (includes WebSocket, Redis Pub/Sub, Kafka consumer status)
-   * Real-Time Stats API: `GET http://localhost:4000/api/v1/realtime/stats`
+```bash
+npm test
+```
 
-3. **Run Phase 4 End-to-End Test Suite:**
-   ```bash
-   npm run test:phase4
-   ```
-   * Validates Redis Pub/Sub multiplexer on pattern `tenant:*`.
-   * Validates WebSocket connection authentication & token enforcement.
-   * Proves zero cross-tenant event leakage and strict room isolation.
-   * Tests instant ticket ingestion push (`TICKET_INGESTED`).
-   * Verifies full end-to-end reactive AI triage loop (`TICKET_PROCESSED`).
-   * Verifies human review & ticket status updates streaming (`TICKET_UPDATED`).
-   * Verifies bidirectional ping/pong heartbeats and real-time telemetry stats.
-
-
-
+This suite verifies:
+* Redis Pub/Sub multiplexer on pattern `tenant:*`.
+* WebSocket connection authentication & token enforcement.
+* Strict multi-tenant room isolation with zero cross-tenant event leakage.
+* Edge ticket ingestion push (`TICKET_INGESTED`).
+* Asynchronous AI triage loop via Kafka and Gemini (`TICKET_PROCESSED`).
+* Bidirectional ping/pong heartbeats and telemetry stats.

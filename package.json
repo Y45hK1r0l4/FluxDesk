@@ -10,6 +10,7 @@
     "seed": "node scripts/seed-tenants.js",
     "dev:server": "npm --prefix server run dev",
     "start:server": "npm --prefix server start",
+    "test": "node scripts/verify-phase4.js",
     "test:phase2": "node scripts/verify-phase2.js",
     "dev:worker": "npm --prefix worker run dev",
     "start:worker": "npm --prefix worker start",
