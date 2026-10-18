@@ -279,7 +279,7 @@ curl -X POST http://localhost:4000/api/v1/tickets \
   }'
 ```
 
-#### GET /api/v1/tickets/:id
+#### `GET /api/v1/tickets/:id`
 
 Returns the current state, AI triage details, and draft response for a ticket.
 
@@ -308,7 +308,7 @@ Returns the current state, AI triage details, and draft response for a ticket.
 }
 ```
 
-#### GET /api/v1/tenants/quota
+#### `GET /api/v1/tenants/quota`
 
 Returns current sliding-window consumption and remaining capacity for the authenticated tenant.
 
@@ -328,9 +328,9 @@ Returns current sliding-window consumption and remaining capacity for the authen
 }
 ```
 
-### Support agent and workspace APIs
+### 2. Support agent and workspace APIs
 
-#### POST /api/v1/auth/login
+#### `POST /api/v1/auth/login`
 
 Authenticates a support agent and returns a tenant-scoped JWT.
 
@@ -361,7 +361,7 @@ Authenticates a support agent and returns a tenant-scoped JWT.
 
 The credentials above are seed data for local development only.
 
-#### GET /api/v1/tickets
+#### `GET /api/v1/tickets`
 
 Returns a tenant-isolated ticket queue with pagination, filtering, and urgency sorting.
 
@@ -382,7 +382,7 @@ Returns a tenant-isolated ticket queue with pagination, filtering, and urgency s
 GET /api/v1/tickets?status=READY_FOR_APPROVAL&urgency=P1_HIGH&page=1&limit=20
 ```
 
-#### PATCH /api/v1/tickets/:id
+#### `PATCH /api/v1/tickets/:id`
 
 Allows an agent to review an AI draft, apply modifications, or resolve a ticket.
 
@@ -399,7 +399,7 @@ Allows an agent to review an AI draft, apply modifications, or resolve a ticket.
 }
 ```
 
-### Real-time WebSocket protocol
+### 3. Real-time WebSocket protocol
 
 **Endpoint:** `ws://localhost:4000/ws`
 
