@@ -454,9 +454,9 @@ ws://localhost:4000/ws?token=<jwt_token>
 }
 ```
 
-### Infrastructure and observability APIs
+### 4. Infrastructure and observability APIs
 
-#### GET /health
+#### `GET /health`
 
 Runs active checks against MongoDB, Redis, the Kafka producer and consumer, and the WebSocket registry.
 
@@ -478,7 +478,7 @@ Runs active checks against MongoDB, Redis, the Kafka producer and consumer, and 
 }
 ```
 
-#### GET /api/v1/realtime/stats
+#### `GET /api/v1/realtime/stats`
 
 Returns active WebSocket connections, tenant distribution, and consumer group activity.
 
