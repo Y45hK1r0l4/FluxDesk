@@ -2,12 +2,12 @@
 
 > **Real-Time Customer Support Ingestion & AI Triage Engine**
 
-### 📌 What is FluxDesk?
+### What is FluxDesk?
 **FluxDesk** is a high-throughput, multi-tenant backend engine that connects incoming customer support requests to internal support teams. It acts as an intelligent shock absorber: it absorbs ticket bursts instantly, uses background AI workers to analyze urgency and draft responses against company runbooks, and streams live updates directly to support agents' screens without page refreshes.
 
 ---
 
-### ⚠️ The Problem: Why Traditional Systems Crash
+### The Problem: Why Traditional Systems Crash
 In standard web applications, when a customer submits a ticket, the API server handles everything in a single synchronous HTTP request—running validation, calling an AI model, saving to the database, and returning a response. Under production load, this architecture fails:
 
 1. **The AI Latency Bottleneck (504 Timeouts):** Large Language Models (LLMs) take 2 to 5 seconds to generate an inference. If an outage or flash sale triggers 500 simultaneous tickets, server connection pools lock up, HTTP connections time out, and users receive `504 Gateway Timeout` errors.
@@ -17,7 +17,7 @@ In standard web applications, when a customer submits a ticket, the API server h
 
 ---
 
-### 💡 The Solution: How FluxDesk Solves It
+### The Solution: How FluxDesk Solves It
 FluxDesk decouples high-speed request intake from background AI reasoning using an event-driven distributed architecture:
 
 1. **Sub-25ms Ingestion (Kafka Decoupling):** The Edge Gateway validates incoming tickets, checks rate limits, and immediately drops the ticket onto **Apache Kafka**, returning `202 Accepted` to the customer in `<25ms`. Customers and webhooks never hang waiting for AI processing.
