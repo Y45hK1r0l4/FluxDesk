@@ -204,9 +204,9 @@ Refer to `.env.example` for the full list of supported variables.
 | API key | Tenant clients and webhooks | `x-api-key` header |
 | JWT | Support agents | `Authorization: Bearer <token>` header |
 
-### Ingestion and client APIs
+### 1. Ingestion and client APIs
 
-#### POST /api/v1/tickets
+#### `POST /api/v1/tickets`
 
 Accepts a support request, verifies the rate quota, and queues the event on Kafka.
 
