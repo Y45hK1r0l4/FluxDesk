@@ -1,29 +1,76 @@
 # FluxDesk
 
-> **Real-Time Customer Support Ingestion & AI Triage Engine**
+**Event-driven customer support ingestion and asynchronous AI triage engine.**
 
-### What is FluxDesk?
-**FluxDesk** is a high-throughput, multi-tenant backend engine that connects incoming customer support requests to internal support teams. It acts as an intelligent shock absorber: it absorbs ticket bursts instantly, uses background AI workers to analyze urgency and draft responses against company runbooks, and streams live updates directly to support agents' screens without page refreshes.
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933.svg)
+![Kafka](https://img.shields.io/badge/Apache%20Kafka-KRaft-231F20.svg)
+![Redis](https://img.shields.io/badge/Redis-7.2-DC382D.svg)
+![MongoDB](https://img.shields.io/badge/MongoDB-supported-47A248.svg)
 
----
-
-### The Problem: Why Traditional Systems Crash
-In standard web applications, when a customer submits a ticket, the API server handles everything in a single synchronous HTTP request—running validation, calling an AI model, saving to the database, and returning a response. Under production load, this architecture fails:
-
-1. **The AI Latency Bottleneck (504 Timeouts):** Large Language Models (LLMs) take 2 to 5 seconds to generate an inference. If an outage or flash sale triggers 500 simultaneous tickets, server connection pools lock up, HTTP connections time out, and users receive `504 Gateway Timeout` errors.
-2. **The "Noisy Neighbor" Problem:** In multi-tenant SaaS platforms where multiple organizations share infrastructure, if one bursty customer floods the API with automated requests, they monopolize server threads and starve paying enterprise clients.
-3. **Stale Agent Dashboards:** Without real-time event streaming, human support agents are forced to constantly refresh their browsers every 30 seconds to catch high-urgency incidents.
-4. **Cross-Tenant Data Leakage:** In naive real-time systems, an improperly scoped event broadcast can leak Company A's sensitive customer tickets into Company B's browser session.
+FluxDesk is a distributed, multi-tenant backend engine for high-throughput customer support intake. It decouples synchronous HTTP ingestion from background AI workloads using Apache Kafka, enforces per-tenant isolation and rate quotas with Redis, and streams real-time updates to agent interfaces over WebSockets.
 
 ---
 
-### The Solution: How FluxDesk Solves It
-FluxDesk decouples high-speed request intake from background AI reasoning using an event-driven distributed architecture:
+## Table of Contents
 
-1. **Sub-25ms Ingestion (Kafka Decoupling):** The Edge Gateway validates incoming tickets, checks rate limits, and immediately drops the ticket onto **Apache Kafka**, returning `202 Accepted` to the customer in `<25ms`. Customers and webhooks never hang waiting for AI processing.
-2. **Sliding-Window Rate Limiting (Redis ZSET):** Enforces microsecond-accurate request quotas per organization tier (Enterprise: 60/min, Pro: 30/min, Free: 5/min) to isolate burst spikes and completely eliminate noisy-neighbor starvation.
-3. **Asynchronous AI Triage (Worker Pool):** Background workers consume tickets from Kafka partitions, cross-reference internal company runbook documentation, and use LLM APIs to classify urgency (P0 to P3), categorize the issue, and generate grounded draft replies.
-4. **Zero-Leakage Real-Time Streaming (WebSockets + Redis Pub/Sub):** As soon as a ticket is ingested or triaged, Redis Pub/Sub multiplexes the event directly to that specific tenant's authenticated **WebSocket room** in `<20ms`, updating the agent's screen live with guaranteed 0% cross-tenant data leakage.
+- [Overview](#overview)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [System Architecture](#system-architecture)
+- [Design Principles](#design-principles)
+- [Event Lifecycle](#event-lifecycle)
+- [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Testing](#testing)
+- [Observability](#observability)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
+
+---
+
+## Overview
+
+In many support backends, ticket submission performs request validation, database writes, and LLM inference within a single synchronous HTTP request. Under traffic bursts such as outages, product launches, or flash sales, this design fails in predictable ways:
+
+| Failure mode | Description |
+| :--- | :--- |
+| AI latency bottlenecks | LLM inference takes 2 to 5 seconds per request. Concurrent requests exhaust connection pools and cause HTTP 504 timeouts. |
+| Noisy neighbor starvation | A burst from one tenant can monopolize worker threads and degrade service for other tenants. |
+| Stale agent interfaces | Without push-based updates, agents must poll or refresh to detect high-urgency incidents. |
+| Cross-tenant data exposure | Real-time broadcasters without strict room scoping can leak ticket payloads across organizations. |
+
+FluxDesk addresses these by buffering incoming spikes in Kafka, enforcing per-tenant rate limits in memory, isolating AI execution in a scalable worker fleet, and scoping real-time event delivery per tenant.
+
+---
+
+## Features
+
+- Non-blocking ticket ingestion with `202 Accepted` responses in under 25 ms
+- Per-tenant sliding-window rate limiting backed by Redis sorted sets
+- Asynchronous AI triage using Google Gemini with a structured JSON schema
+- Runbook-grounded draft replies with confidence scoring
+- Tenant-scoped real-time event streaming over WebSockets
+- JWT and API key authentication
+- Deep health checks and metrics endpoints for all subsystems
+- Automated verification suite covering isolation, throttling, and decoupling
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+| :--- | :--- |
+| Runtime | Node.js 18+ |
+| Message bus | Apache Kafka (KRaft mode) |
+| Cache, rate limiting, Pub/Sub | Redis 7.2 |
+| Persistence | MongoDB |
+| AI inference | Google Gemini |
+| Real-time transport | WebSocket |
+| Local infrastructure | Docker Compose |
 
 ---
 
@@ -57,510 +104,483 @@ flowchart LR
 
 ---
 
-## End-to-End Event Lifecycle
+## Design Principles
 
-1. **Ingest (`POST /api/v1/tickets`)**: Edge Gateway checks Redis sliding-window quota. If within limits, an event is produced to Kafka topic `ticket.incoming` keyed by `tenantId`. Response returned in `<25ms`.
-2. **Stream (`TICKET_INGESTED`)**: Gateway broadcasts ingestion confirmation immediately to connected tenant WebSockets.
-3. **Process (Worker Fleet)**: Background workers pull from Kafka, ground tickets against tenant runbooks, query Google Gemini for structured triage JSON, and persist to MongoDB.
-4. **Publish (`ticket.processed`)**: Workers emit completion events to Kafka.
-5. **Real-Time Push (`TICKET_PROCESSED`)**: Gateway consumes processed events, dispatches them through Redis Pub/Sub (`tenant:<tenantId>`), and streams live payload updates to the authenticated tenant's WebSockets.
+### Low-latency stream ingestion
+
+The Edge Gateway validates the payload, authenticates the tenant, checks the Redis rate quota, and publishes an event to the `ticket.incoming` Kafka topic before returning `202 Accepted`. Target response time is under 25 ms.
+
+### Sliding-window rate limiting
+
+Quotas are enforced per tenant using Redis sorted sets keyed by `ratelimit:{tenantId}:{endpoint}`. Entries older than 60 seconds are purged on each request.
+
+| Tier | Limit |
+| :--- | :--- |
+| Enterprise | 60 requests per minute |
+| Pro | 30 requests per minute |
+| Free | 5 requests per minute |
+
+If Redis becomes unavailable, the rate limiter fails open to preserve intake availability.
+
+### Asynchronous AI triage and grounding
+
+Workers consume Kafka partitions keyed by `tenantId`. Each worker loads the tenant's runbooks from MongoDB, queries Gemini with a structured JSON schema, assigns urgency (`P0_CRITICAL` through `P3_LOW`) and a category, and drafts a suggested reply that cites matched runbooks.
+
+- Confidence of 95% or higher on a standard resolution sets the status to `READY_FOR_APPROVAL`.
+- Lower confidence, or any case requiring manual intervention, sets the status to `NEEDS_REVIEW`.
+
+### Tenant-isolated real-time streaming
+
+Redis Pub/Sub channels are scoped per tenant (`tenant:{tenantId}`). The WebSocket Gateway keeps authenticated connections in dedicated per-tenant sets, so agents receive only the events for their own organization.
 
 ---
 
-## Quickstart Guide
+## Event Lifecycle
 
-### 1. Prerequisites
-* [Node.js](https://nodejs.org/) (v18+)
-* [Docker & Docker Compose](https://www.docker.com/)
+1. **Ingest.** `POST /api/v1/tickets` is validated and rate limited. A `TICKET_SUBMITTED` event is produced to Kafka, keyed by `tenantId`, and the client receives `202 Accepted`.
+2. **Stream.** The Gateway emits `TICKET_INGESTED` to connected agent WebSockets through Redis Pub/Sub so queues update immediately.
+3. **Process.** Workers consume the event, retrieve tenant runbooks, query Gemini, and persist the result to MongoDB.
+4. **Publish.** The worker emits a completion event to the `ticket.processed` topic.
+5. **Push.** The Gateway consumes the processed event, broadcasts it through Redis Pub/Sub, and delivers `TICKET_PROCESSED` to authenticated agent sessions.
 
-### 2. Start Supporting Infrastructure
-Spin up Apache Kafka (KRaft), Redis, MongoDB, and UI dashboards:
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18 or higher
+- Docker and Docker Compose
+- A Google Gemini API key
+
+### 1. Start infrastructure
+
+Start Apache Kafka (KRaft mode), Redis, and MongoDB:
 
 ```bash
 docker compose up -d
 ```
 
-Verify service readiness:
+Verify that all services are ready:
+
 ```bash
 node scripts/verify-infra.js
 ```
 
-### 3. Configure Environment
-Copy the example environment file and insert your credentials:
+### 2. Configure the environment
+
 ```bash
 cp .env.example .env
 ```
-Ensure your `GEMINI_API_KEY` is set in `.env` for AI classification.
 
-### 4. Seed Multi-Tenant Organizations
-Seeds pre-configured tenants and agents across Enterprise, Pro, and Free tiers:
+Set your Gemini API key in `.env`:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+### 3. Seed the database
+
+Create the initial tenants, API keys, rate limit tiers, and agent accounts:
+
 ```bash
 npm run seed
 ```
 
-### 5. Start the Engine
+### 4. Run the services
 
-**Terminal 1 — Edge Ingestion Gateway & WebSocket Server:**
+Start the Edge Gateway and WebSocket server:
+
 ```bash
 npm run dev:server
-# Server running at http://localhost:4000
-# WebSocket gateway at ws://localhost:4000/ws
 ```
 
-**Terminal 2 — Asynchronous AI Worker Fleet:**
+In a separate terminal, start the AI worker fleet:
+
 ```bash
 npm run dev:worker
-# Worker running at http://localhost:4001
+```
+
+| Service | Address |
+| :--- | :--- |
+| HTTP API | `http://localhost:4000` |
+| WebSocket Gateway | `ws://localhost:4000/ws` |
+| Worker health and metrics | `http://localhost:4001` |
+
+---
+
+## Configuration
+
+Configuration is read from environment variables. A template is provided in `.env.example`.
+
+| Variable | Required | Description |
+| :--- | :--- | :--- |
+| `GEMINI_API_KEY` | Yes | API key used by workers for Google Gemini inference |
+
+Refer to `.env.example` for the full list of supported variables.
+
+---
+
+## API Reference
+
+### Authentication
+
+| Method | Used by | Mechanism |
+| :--- | :--- | :--- |
+| API key | Tenant clients and webhooks | `x-api-key` header |
+| JWT | Support agents | `Authorization: Bearer <token>` header |
+
+### Ingestion and client APIs
+
+#### POST /api/v1/tickets
+
+Accepts a support request, verifies the rate quota, and queues the event on Kafka.
+
+**Headers**
+
+| Header | Value |
+| :--- | :--- |
+| `Content-Type` | `application/json` |
+| `x-api-key` | Tenant API key, for example `flx_live_stripe_77b31c99` |
+
+**Request body**
+
+```json
+{
+  "title": "Payment gateway timeout on checkout",
+  "description": "Customers are encountering 504 Gateway Timeout when submitting credit card payments.",
+  "customer": {
+    "name": "Jane Doe",
+    "email": "jane@example.com"
+  },
+  "channel": "API",
+  "metadata": {
+    "environment": "production",
+    "region": "eu-central-1"
+  }
+}
+```
+
+**Responses**
+
+`202 Accepted`
+
+```json
+{
+  "success": true,
+  "ticketId": "tkt_MVC6LPWXJBYD",
+  "status": "QUEUED",
+  "tenantId": "org_stripe_alpha",
+  "message": "Ticket accepted and queued for processing",
+  "latencyMs": 18
+}
+```
+
+`429 Too Many Requests`
+
+```json
+{
+  "error": "Too Many Requests",
+  "message": "Tenant sliding-window rate limit exceeded. Please wait before submitting more requests.",
+  "tenantId": "org_free_tier",
+  "limit": 5,
+  "windowSeconds": 60,
+  "retryAfterSeconds": 24
+}
+```
+
+`401 Unauthorized`: the API key is missing or invalid.
+
+**Example**
+
+```bash
+curl -X POST http://localhost:4000/api/v1/tickets \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: flx_live_stripe_77b31c99" \
+  -d '{
+    "title": "Webhook signature verification error",
+    "description": "HMAC verification failing after SDK v4.2 update.",
+    "customer": { "name": "Alex Smith", "email": "alex@company.com" },
+    "channel": "API"
+  }'
 ```
 
 ---
 
-## Automated Verification & Test Suite
+#### GET /api/v1/tickets/:id
 
-FluxDesk includes a comprehensive end-to-end verification suite that validates the entire distributed pipeline:
+Returns the current state, AI triage details, and draft response for a ticket.
+
+**Headers:** `x-api-key`
+
+**Response `200 OK`**
+
+```json
+{
+  "success": true,
+  "ticket": {
+    "ticketId": "tkt_MVC6LPWXJBYD",
+    "tenantId": "org_stripe_alpha",
+    "title": "Payment gateway timeout on checkout",
+    "status": "READY_FOR_APPROVAL",
+    "urgency": "P1_HIGH",
+    "category": "Technical Bug",
+    "aiDraft": {
+      "confidenceScore": 0.96,
+      "reasoning": "Standard webhook raw body parsing conflict documented in runbooks.",
+      "referencedDocs": ["Webhook Signature Verification"],
+      "suggestedReply": "Ensure raw request buffers are preserved prior to JSON parsing middleware."
+    },
+    "createdAt": "2026-10-18T12:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### GET /api/v1/tenants/quota
+
+Returns current sliding-window consumption and remaining capacity for the authenticated tenant.
+
+**Headers:** `x-api-key`
+
+**Response `200 OK`**
+
+```json
+{
+  "success": true,
+  "tenantId": "org_stripe_alpha",
+  "plan": "PRO",
+  "rateLimitPerMinute": 30,
+  "currentUsage": 4,
+  "remainingRequests": 26,
+  "windowSizeSeconds": 60
+}
+```
+
+---
+
+### Support agent and workspace APIs
+
+#### POST /api/v1/auth/login
+
+Authenticates a support agent and returns a tenant-scoped JWT.
+
+**Request body**
+
+```json
+{
+  "email": "sarah@acme.com",
+  "password": "password123"
+}
+```
+
+**Response `200 OK`**
+
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "6ad33cc384e1500d21c46d50",
+    "name": "Sarah Connor",
+    "email": "sarah@acme.com",
+    "role": "ADMIN",
+    "tenantId": "org_acme_corp"
+  }
+}
+```
+
+The credentials above are seed data for local development only.
+
+---
+
+#### GET /api/v1/tickets
+
+Returns a tenant-isolated ticket queue with pagination, filtering, and urgency sorting.
+
+**Headers:** `Authorization: Bearer <jwt_token>` or `x-api-key`
+
+**Query parameters**
+
+| Parameter | Description | Default |
+| :--- | :--- | :--- |
+| `status` | One of `QUEUED`, `PROCESSING`, `NEEDS_REVIEW`, `READY_FOR_APPROVAL`, `RESOLVED`, `CLOSED` | none |
+| `urgency` | One of `P0_CRITICAL`, `P1_HIGH`, `P2_MEDIUM`, `P3_LOW` | none |
+| `page` | Page index | `1` |
+| `limit` | Page size, maximum `100` | `20` |
+
+**Example**
+
+```
+GET /api/v1/tickets?status=READY_FOR_APPROVAL&urgency=P1_HIGH&page=1&limit=20
+```
+
+---
+
+#### PATCH /api/v1/tickets/:id
+
+Allows an agent to review an AI draft, apply modifications, or resolve a ticket.
+
+**Headers:** `Content-Type: application/json`, `Authorization: Bearer <jwt_token>`
+
+**Request body**
+
+```json
+{
+  "status": "RESOLVED",
+  "humanReview": {
+    "finalReply": "The webhook issue was identified as a raw body parser conflict and is now resolved."
+  }
+}
+```
+
+---
+
+### Real-time WebSocket protocol
+
+**Endpoint:** `ws://localhost:4000/ws`
+
+Connections authenticate with either an API key or a JWT in the query string:
+
+```
+ws://localhost:4000/ws?apiKey=<api_key>
+ws://localhost:4000/ws?token=<jwt_token>
+```
+
+#### Event frames
+
+| Event | Dispatched when |
+| :--- | :--- |
+| `TICKET_INGESTED` | The HTTP request is accepted |
+| `TICKET_PROCESSED` | Worker AI triage completes |
+| `TICKET_UPDATED` | A human review or state change occurs |
+
+`TICKET_INGESTED`
+
+```json
+{
+  "eventId": "evt_1729000000000_a1b2c3d4",
+  "type": "TICKET_INGESTED",
+  "tenantId": "org_stripe_alpha",
+  "timestamp": "2026-10-18T12:00:00.000Z",
+  "data": {
+    "ticketId": "tkt_MVC6LPWXJBYD",
+    "title": "Payment gateway timeout on checkout",
+    "status": "QUEUED",
+    "urgency": "UNASSIGNED"
+  }
+}
+```
+
+`TICKET_PROCESSED`
+
+```json
+{
+  "eventId": "evt_27b0829b-3058-4e76-870f-5637215043a6",
+  "type": "TICKET_PROCESSED",
+  "tenantId": "org_stripe_alpha",
+  "timestamp": "2026-10-18T12:00:03.200Z",
+  "data": {
+    "ticketId": "tkt_MVC6LPWXJBYD",
+    "status": "READY_FOR_APPROVAL",
+    "urgency": "P1_HIGH",
+    "category": "Technical Bug",
+    "confidenceScore": 0.96,
+    "suggestedReply": "Ensure raw request buffers are preserved prior to JSON parsing middleware."
+  }
+}
+```
+
+---
+
+### Infrastructure and observability APIs
+
+#### GET /health
+
+Runs active checks against MongoDB, Redis, the Kafka producer and consumer, and the WebSocket registry.
+
+**Response `200 OK`**
+
+```json
+{
+  "status": "UP",
+  "timestamp": "2026-10-18T12:00:00.000Z",
+  "uptimeSeconds": 312.4,
+  "services": {
+    "mongodb": { "status": "UP", "state": "connected", "database": "fluxdesk" },
+    "redis": { "status": "UP", "latencyMs": 2 },
+    "kafka": { "status": "UP", "circuitBreaker": "CLOSED", "connected": true },
+    "websocket": { "status": "UP", "activeConnections": 2, "activeTenantsCount": 1 },
+    "redisPubSub": { "status": "UP", "pattern": "tenant:*" },
+    "kafkaProcessedConsumer": { "status": "UP", "topic": "ticket.processed", "isRunning": true }
+  }
+}
+```
+
+#### GET /api/v1/realtime/stats
+
+Returns active WebSocket connections, tenant distribution, and consumer group activity.
+
+**Headers:** `Authorization: Bearer <jwt_token>` or `x-api-key`
+
+---
+
+## Testing
+
+Run the automated verification suite:
 
 ```bash
 npm test
 ```
 
-This automated suite verifies:
-* **Tenant Isolation:** Establishes concurrent WebSocket connections across multiple organizations and verifies **zero cross-tenant message leakage**.
-* **Rate Limiting:** Executes burst requests exceeding tenant tier limits and confirms Redis sliding-window throttling.
-* **Kafka Decoupling:** Proves ingestion latency under `<25ms` while background workers process tickets asynchronously.
-* **AI Triage & Grounding:** Confirms Gemini structured JSON output and tenant runbook matching.
-* **WebSocket Streaming:** Verifies bidirectional heartbeats and real-time `TICKET_INGESTED` and `TICKET_PROCESSED` event frames.
+| Stage | Verifies |
+| :--- | :--- |
+| Tenant isolation | No cross-tenant data leakage across concurrent WebSocket connections |
+| Rate limit throttling | Sliding-window enforcement and HTTP 429 backoff calculation |
+| Kafka decoupling | Ingestion latency under 25 ms while workers run in the background |
+| AI triage validation | Structured schema compliance, grounding accuracy, and confidence threshold behavior |
+| WebSocket loop | Ping/pong heartbeats and frame delivery across tenant rooms |
 
 ---
 
-## Complete API Reference
+## Observability
 
-FluxDesk exposes three distinct categories of APIs designed for specific integration roles:
-1. **[User & Ingestion APIs](#1-user--ingestion-apis-customer--webhook-facing)**: For end-customers, external webhooks, and client apps to submit tickets and check status.
-2. **[Support Agent APIs](#2-support-agent-apis-internal-team--copilot-facing)**: For human support agents to authenticate, inspect AI triage, and review queues.
-3. **[Real-Time & Infrastructure APIs](#3-real-time--infrastructure-apis-event-fabric--observability)**: For WebSocket streaming, telemetry, and service health checks.
-
----
-
-### 1. User & Ingestion APIs (Customer / Webhook Facing)
-
-These endpoints are used by customer-facing frontends, mobile applications, or third-party webhooks (e.g., Stripe, Shopify) to ingest tickets at high throughput and check resolution progress.
-
-#### `POST /api/v1/tickets` — High-Speed Ticket Ingestion Gateway
-* **Purpose:** Decouples incoming requests from heavy AI processing. Validates tenant API keys, checks Redis sliding-window quotas, emits the ticket event directly to Apache Kafka partitions, and returns `202 Accepted` in `<25ms`.
-* **Method:** `POST`
-* **URL:** `http://localhost:4000/api/v1/tickets`
-* **Headers:**
-  * `Content-Type: application/json`
-  * `x-api-key`: Tenant API Key (e.g. `flx_live_stripe_77b31c99`)
-* **Request Body:**
-  ```json
-  {
-    "title": "Payment gateway timeout on checkout",
-    "description": "Customers are encountering 504 Gateway Timeout when submitting credit card payments on EU store.",
-    "customer": {
-      "name": "Jane Doe",
-      "email": "jane@example.com"
-    },
-    "channel": "API",
-    "metadata": {
-      "environment": "production",
-      "region": "eu-central-1"
-    }
-  }
-  ```
-* **Responses:**
-  * **`202 Accepted`** — Successfully accepted and queued:
-    ```json
-    {
-      "success": true,
-      "ticketId": "tkt_MVC6LPWXJBYD",
-      "status": "QUEUED",
-      "tenantId": "org_stripe_alpha",
-      "message": "Ticket accepted and queued for processing",
-      "latencyMs": 18
-    }
-    ```
-  * **`429 Too Many Requests`** — Tenant rate limit quota exceeded:
-    ```json
-    {
-      "error": "Too Many Requests",
-      "message": "Rate limit exceeded for plan PRO. Max 30 requests per minute.",
-      "retryAfterSeconds": 24
-    }
-    ```
-  * **`401 Unauthorized`** — Missing or invalid API key.
-* **cURL Usage:**
-  ```bash
-  curl -X POST http://localhost:4000/api/v1/tickets \
-    -H "Content-Type: application/json" \
-    -H "x-api-key: flx_live_stripe_77b31c99" \
-    -d '{
-      "title": "Webhook signature verification error",
-      "description": "HMAC verification failing after SDK v4.2 update.",
-      "customer": { "name": "Alex Smith", "email": "alex@company.com" },
-      "channel": "API"
-    }'
-  ```
-
----
-
-#### `GET /api/v1/tickets/:id` — Track Ticket Status & Resolution
-* **Purpose:** Allows a customer or integration to poll the real-time status and AI resolution of a submitted ticket.
-* **Method:** `GET`
-* **URL:** `http://localhost:4000/api/v1/tickets/tkt_MVC6LPWXJBYD`
-* **Headers:**
-  * `x-api-key`: Tenant API Key (e.g. `flx_live_stripe_77b31c99`)
-* **Response (`200 OK`):**
-  ```json
-  {
-    "success": true,
-    "ticket": {
-      "ticketId": "tkt_MVC6LPWXJBYD",
-      "tenantId": "org_stripe_alpha",
-      "title": "Payment gateway timeout on checkout",
-      "status": "NEEDS_REVIEW",
-      "urgency": "P1_HIGH",
-      "category": "Technical Bug",
-      "aiDraft": {
-        "confidenceScore": 0.85,
-        "reasoning": "User experiencing a 504 gateway timeout during checkout...",
-        "referencedDocs": ["Webhook Signature Verification"],
-        "suggestedReply": "Hello Jane, please ensure raw request buffers are preserved before JSON parsers mutate headers..."
-      },
-      "createdAt": "2026-10-17T09:15:47.730Z"
-    }
-  }
-  ```
-* **cURL Usage:**
-  ```bash
-  curl -X GET http://localhost:4000/api/v1/tickets/tkt_MVC6LPWXJBYD \
-    -H "x-api-key: flx_live_stripe_77b31c99"
-  ```
-
----
-
-#### `GET /api/v1/tenants/quota` — Check Rate Limit Quota & Remaining Capacity
-* **Purpose:** Inquires the tenant's current plan tier, rate limit ceiling, and available request allowance in the active sliding window.
-* **Method:** `GET`
-* **URL:** `http://localhost:4000/api/v1/tenants/quota`
-* **Headers:**
-  * `x-api-key`: Tenant API Key (e.g. `flx_live_stripe_77b31c99`)
-* **Response (`200 OK`):**
-  ```json
-  {
-    "success": true,
-    "tenantId": "org_stripe_alpha",
-    "plan": "PRO",
-    "rateLimitPerMinute": 30,
-    "currentUsage": 4,
-    "remainingRequests": 26,
-    "windowSizeSeconds": 60
-  }
-  ```
-* **cURL Usage:**
-  ```bash
-  curl -X GET http://localhost:4000/api/v1/tenants/quota \
-    -H "x-api-key: flx_live_stripe_77b31c99"
-  ```
-
----
-
-### 2. Support Agent APIs (Internal Team / Copilot Facing)
-
-These endpoints are used by human support agents, team leads, and admin dashboards to authenticate, monitor tenant-isolated queues, and perform human-in-the-loop review.
-
-#### `POST /api/v1/auth/login` — Support Agent Authentication
-* **Purpose:** Authenticates support agents with email and password, issuing a tenant-scoped JWT bearer token.
-* **Method:** `POST`
-* **URL:** `http://localhost:4000/api/v1/auth/login`
-* **Headers:**
-  * `Content-Type: application/json`
-* **Request Body:**
-  ```json
-  {
-    "email": "sarah@acme.com",
-    "password": "password123"
-  }
-  ```
-* **Response (`200 OK`):**
-  ```json
-  {
-    "success": true,
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "user": {
-      "id": "6ad33cc384e1500d21c46d50",
-      "name": "Sarah Connor",
-      "email": "sarah@acme.com",
-      "role": "ADMIN",
-      "tenantId": "org_acme_corp"
-    }
-  }
-  ```
-* **Pre-Seeded Agent Accounts:**
-  * **Acme Enterprise (`ADMIN`):** `sarah@acme.com` / `password123`
-  * **Stripe Pro (`AGENT`):** `alex@stripe.com` / `password123`
-  * **Free Sandbox (`AGENT`):** `tester@sandbox.com` / `password123`
-* **cURL Usage:**
-  ```bash
-  curl -X POST http://localhost:4000/api/v1/auth/login \
-    -H "Content-Type: application/json" \
-    -d '{"email": "alex@stripe.com", "password": "password123"}'
-  ```
-
----
-
-#### `GET /api/v1/auth/me` — Current Agent Session Profile
-* **Purpose:** Validates the active JWT session and retrieves the authenticated agent's profile, role, and tenant organization.
-* **Method:** `GET`
-* **URL:** `http://localhost:4000/api/v1/auth/me`
-* **Headers:**
-  * `Authorization: Bearer <jwt_token>`
-* **Response (`200 OK`):**
-  ```json
-  {
-    "success": true,
-    "user": {
-      "id": "6ad33cc384e1500d21c46d51",
-      "name": "Alex Smith",
-      "email": "alex@stripe.com",
-      "role": "AGENT",
-      "tenantId": "org_stripe_alpha"
-    }
-  }
-  ```
-* **cURL Usage:**
-  ```bash
-  curl -X GET http://localhost:4000/api/v1/auth/me \
-    -H "Authorization: Bearer <jwt_token>"
-  ```
-
----
-
-#### `GET /api/v1/tickets` — Agent Ticket Queue (Filtered & Paginated)
-* **Purpose:** Displays the tenant's ticket queue with strict tenant isolation. Supports pagination and filtering by processing status (`QUEUED`, `TRIAGED`, `NEEDS_REVIEW`, `RESOLVED`) and AI urgency (`P0_CRITICAL`, `P1_HIGH`, `P2_MEDIUM`, `P3_LOW`).
-* **Method:** `GET`
-* **URL:** `http://localhost:4000/api/v1/tickets?status=NEEDS_REVIEW&urgency=P1_HIGH&page=1&limit=20`
-* **Headers:**
-  * `Authorization: Bearer <jwt_token>` (or `x-api-key: <api_key>`)
-* **Response (`200 OK`):**
-  ```json
-  {
-    "success": true,
-    "tickets": [
-      {
-        "ticketId": "tkt_MVC6LPWXJBYD",
-        "title": "Payment gateway timeout on checkout",
-        "status": "NEEDS_REVIEW",
-        "urgency": "P1_HIGH",
-        "category": "Technical Bug",
-        "customer": { "name": "Jane Doe", "email": "jane@example.com" },
-        "aiDraft": {
-          "confidenceScore": 0.85,
-          "suggestedReply": "Hello Jane, please ensure raw request buffers are preserved..."
-        },
-        "createdAt": "2026-10-17T09:15:47.730Z"
-      }
-    ],
-    "pagination": { "page": 1, "limit": 20, "total": 1 }
-  }
-  ```
-* **cURL Usage:**
-  ```bash
-  curl -X GET "http://localhost:4000/api/v1/tickets?status=NEEDS_REVIEW" \
-    -H "Authorization: Bearer <jwt_token>"
-  ```
-
----
-
-#### `PATCH /api/v1/tickets/:id` — Human Review & Ticket Resolution
-* **Purpose:** Allows a support agent to edit the AI-generated draft response, approve resolution, or transition ticket state (`IN_PROGRESS`, `RESOLVED`). Emits a `TICKET_UPDATED` event live across all connected tenant WebSockets.
-* **Method:** `PATCH`
-* **URL:** `http://localhost:4000/api/v1/tickets/tkt_MVC6LPWXJBYD`
-* **Headers:**
-  * `Content-Type: application/json`
-  * `Authorization: Bearer <jwt_token>` (or `x-api-key: <api_key>`)
-* **Request Body:**
-  ```json
-  {
-    "status": "RESOLVED",
-    "agentReply": "The webhook issue was identified as a raw body parser conflict and is now resolved."
-  }
-  ```
-* **Response (`200 OK`):**
-  ```json
-  {
-    "success": true,
-    "ticket": {
-      "ticketId": "tkt_MVC6LPWXJBYD",
-      "status": "RESOLVED",
-      "humanReview": {
-        "reviewedBy": "Alex Smith",
-        "reviewedAt": "2026-10-17T09:20:00.000Z",
-        "finalReply": "The webhook issue was identified as a raw body parser conflict and is now resolved."
-      }
-    }
-  }
-  ```
-* **cURL Usage:**
-  ```bash
-  curl -X PATCH http://localhost:4000/api/v1/tickets/tkt_MVC6LPWXJBYD \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer <jwt_token>" \
-    -d '{"status": "RESOLVED", "agentReply": "Resolved after review."}'
-  ```
-
----
-
-#### `GET /api/v1/tenants` — List Tenant Workspaces & Tier Configurations
-* **Purpose:** Retrieves registered tenant organizations, their active SLA tiers (`ENTERPRISE`, `PRO`, `FREE`), rate limit ceilings, and grounded runbook documentation.
-* **Method:** `GET`
-* **URL:** `http://localhost:4000/api/v1/tenants`
-* **Headers:** None (Public)
-* **Response (`200 OK`):** Array of tenant profiles and policy configurations.
-* **cURL Usage:**
-  ```bash
-  curl -X GET http://localhost:4000/api/v1/tenants
-  ```
-
----
-
-### 3. Real-Time & Infrastructure APIs (Event Fabric & Observability)
-
-These endpoints provide persistent WebSocket event streaming, deep multi-subsystem health checks, and real-time pub/sub telemetry.
-
-#### `ws://localhost:4000/ws` — Real-Time WebSocket Event Stream
-* **Purpose:** Persistent bidirectional connection for receiving live ticket events. Ensures **zero cross-tenant data leakage** by multiplexing Redis Pub/Sub directly into tenant-authenticated rooms.
-* **Connection URL:**
-  ```
-  ws://localhost:4000/ws?apiKey=flx_live_stripe_77b31c99
-  ```
-  *(Or with Agent JWT: `ws://localhost:4000/ws?token=<jwt_token>`)*
-* **Event Frames Streamed:**
-  * **`TICKET_INGESTED`** (Pushed immediately upon API acceptance):
-    ```json
-    {
-      "eventId": "evt_1729000000000_a1b2c3d4",
-      "type": "TICKET_INGESTED",
-      "tenantId": "org_stripe_alpha",
-      "timestamp": "2026-10-17T09:15:47.730Z",
-      "data": {
-        "ticketId": "tkt_MVC6LPWXJBYD",
-        "title": "Payment gateway timeout on checkout",
-        "status": "QUEUED",
-        "urgency": "UNASSIGNED"
-      }
-    }
-    ```
-  * **`TICKET_PROCESSED`** (Pushed when Gemini AI completes classification):
-    ```json
-    {
-      "eventId": "evt_27b0829b-3058-4e76-870f-5637215043a6",
-      "type": "TICKET_PROCESSED",
-      "tenantId": "org_stripe_alpha",
-      "timestamp": "2026-10-17T09:15:50.933Z",
-      "data": {
-        "ticketId": "tkt_MVC6LPWXJBYD",
-        "status": "NEEDS_REVIEW",
-        "urgency": "P1_HIGH",
-        "category": "Technical Bug",
-        "confidenceScore": 0.85,
-        "suggestedReply": "Hello Jane, please ensure raw request buffers are preserved...",
-        "processingDurationMs": 2818
-      }
-    }
-    ```
-  * **`TICKET_UPDATED`** (Pushed when an agent approves or modifies ticket status).
-* **JavaScript / Browser Usage:**
-  ```javascript
-  const socket = new WebSocket('ws://localhost:4000/ws?apiKey=flx_live_stripe_77b31c99');
-
-  socket.onmessage = (event) => {
-    const frame = JSON.parse(event.data);
-    console.log(`[${frame.type}] Received:`, frame.data);
-  };
-  ```
-
----
-
-#### `GET /health` — Full Infrastructure & Subsystem Health Check
-* **Purpose:** Probes all backing services (MongoDB, Redis, Kafka producer, Kafka processed consumer, Redis Pub/Sub, and WebSocket connection pool) for container orchestrators and uptime monitors.
-* **Method:** `GET`
-* **URL:** `http://localhost:4000/health`
-* **Headers:** None (Public)
-* **Response (`200 OK`):**
-  ```json
-  {
-    "status": "UP",
-    "timestamp": "2026-10-17T09:20:00.000Z",
-    "uptimeSeconds": 312.4,
-    "services": {
-      "mongodb": { "status": "UP", "state": "connected", "database": "fluxdesk" },
-      "redis": { "status": "UP", "latencyMs": 2 },
-      "kafka": { "status": "UP", "circuitBreaker": "CLOSED", "connected": true },
-      "websocket": { "status": "UP", "activeConnections": 2, "activeTenantsCount": 1 },
-      "redisPubSub": { "status": "UP", "pattern": "tenant:*" },
-      "kafkaProcessedConsumer": { "status": "UP", "topic": "ticket.processed", "isRunning": true }
-    }
-  }
-  ```
-* **cURL Usage:**
-  ```bash
-  curl -X GET http://localhost:4000/health
-  ```
-
----
-
-#### `GET /api/v1/realtime/stats` — Real-Time Telemetry & Socket Metrics
-* **Purpose:** Provides operational metrics on active client WebSockets, tenant connection distribution, Redis Pub/Sub throughput, and Kafka consumer group lag.
-* **Method:** `GET`
-* **URL:** `http://localhost:4000/api/v1/realtime/stats`
-* **Headers:**
-  * `Authorization: Bearer <jwt_token>` (or `x-api-key: <api_key>`)
-* **Response (`200 OK`):**
-  ```json
-  {
-    "success": true,
-    "realtime": {
-      "websocket": {
-        "totalConnections": 14,
-        "activeConnections": 3,
-        "eventsDispatched": 42,
-        "activeTenantsCount": 2,
-        "tenantConnections": { "org_stripe_alpha": 2, "org_acme_corp": 1 }
-      },
-      "pubsub": {
-        "messagesPublished": 42,
-        "messagesReceived": 42,
-        "pattern": "tenant:*"
-      },
-      "kafkaConsumer": {
-        "topic": "ticket.processed",
-        "eventsConsumed": 42,
-        "isRunning": true
-      }
-    }
-  }
-  ```
-* **cURL Usage:**
-  ```bash
-  curl -X GET http://localhost:4000/api/v1/realtime/stats \
-    -H "x-api-key: flx_live_stripe_77b31c99"
-  ```
-
----
-
-## Observability & Dashboards
-
-| Service | Port / URL | Description |
+| Component | Endpoint | Purpose |
 | :--- | :--- | :--- |
-| **Edge Ingestion API** | `http://localhost:4000/health` | Gateway health & active connection count |
-| **Real-Time Telemetry** | `http://localhost:4000/api/v1/realtime/stats` | Active WebSocket rooms, tenants & message counts |
-| **Worker Metrics** | `http://localhost:4001/metrics` | Consumer throughput, Gemini latency & queue lag |
-| **Kafka UI** | `http://localhost:8080/` | Inspect Kafka topics, consumer groups, partition offsets |
-| **Redis Commander** | `http://localhost:8081/` | Inspect sliding-window rate limit ZSETs & Pub/Sub |
+| Gateway health | `http://localhost:4000/health` | Subsystem status and connection availability |
+| Real-time telemetry | `http://localhost:4000/api/v1/realtime/stats` | Active sockets, tenant rooms, message throughput |
+| Worker metrics | `http://localhost:4001/metrics` | Consumer throughput, Gemini latency, queue lag |
+| Kafka UI | `http://localhost:8080/` | Topic partitions, consumer offsets, message inspection |
+| Redis Commander | `http://localhost:8081/` | Rate limit sorted sets and Pub/Sub channels |
 
 ---
 
-## Architecture RFC & Documentation
-For deep-dive specifications on data contracts, failure modes, partition strategies, and backpressure designs, see:
-* [Architecture RFC-001](docs/system-design-rfc.md)
+## Documentation
+
+Message schemas, partition hashing, backpressure controls, and failure recovery are described in [Architecture RFC-001](docs/system-design-rfc.md).
+
+---
+
+## Contributing
+
+Contributions are welcome. To propose a change:
+
+1. Fork the repository and create a branch from `main`.
+2. Make your changes and add or update tests where applicable.
+3. Run `npm test` and confirm the suite passes.
+4. Open a pull request describing the change and the motivation behind it.
+
+For substantial changes, please open an issue first to discuss the approach.
+
+---
+
+## Security
+
+Do not report security vulnerabilities through public issues. Contact the maintainers privately with a description of the issue and steps to reproduce it. The default credentials and API keys in the seed data are intended for local development only and must not be used in any shared or production environment.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
