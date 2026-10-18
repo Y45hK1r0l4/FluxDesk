@@ -173,7 +173,7 @@ async function runPhase3Verification() {
 
     const stripeProcessedTicket = await pollTicketInMongo(stripeTicketId);
     assert(
-      stripeProcessedTicket.status === 'AUTO_RESOLVED' || stripeProcessedTicket.status === 'NEEDS_REVIEW',
+      ['READY_FOR_APPROVAL', 'AUTO_RESOLVED', 'NEEDS_REVIEW'].includes(stripeProcessedTicket.status),
       `Ticket transitioned to processed state: ${stripeProcessedTicket.status}`
     );
     assert(

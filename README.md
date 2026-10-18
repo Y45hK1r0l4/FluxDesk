@@ -1,3 +1,5 @@
+<div align="center">
+
 # FluxDesk
 
 **Real-Time Customer Support Ingestion & AI Triage Engine**
@@ -7,6 +9,8 @@
 ![Kafka](https://img.shields.io/badge/Apache%20Kafka-KRaft-231F20.svg)
 ![Redis](https://img.shields.io/badge/Redis-7.2-DC382D.svg)
 ![MongoDB](https://img.shields.io/badge/MongoDB-supported-47A248.svg)
+
+</div>
 
 **FluxDesk** is a high-throughput, multi-tenant backend engine that connects incoming customer support requests to internal support teams. It acts as an intelligent shock absorber: it absorbs ticket bursts instantly, uses background AI workers to analyze urgency and draft responses against company runbooks, and streams live updates directly to support agents' screens without page refreshes.
 
@@ -160,6 +164,28 @@ Create the initial tenants, API keys, rate limit tiers, and agent accounts:
 ```bash
 npm run seed
 ```
+
+This provisions the following pre-configured development credentials:
+
+#### Tenant API keys
+
+Used by client applications and webhooks via the `x-api-key` header or WebSocket connection query:
+
+| Organization | Tenant ID | Plan | Rate limit | API key |
+| :--- | :--- | :--- | :--- | :--- |
+| Acme Corporation | `org_acme_corp` | Enterprise | 60 req/min | `flx_live_acme_98f12a34` |
+| Stripe Alpha Payments | `org_stripe_alpha` | Pro | 30 req/min | `flx_live_stripe_77b31c99` |
+| Free Dev Sandbox | `org_free_tier` | Free | 5 req/min | `flx_live_free_11a22b33` |
+
+#### Agent login credentials
+
+Used to authenticate support agents at `POST /api/v1/auth/login`:
+
+| Organization | Role | Email | Password |
+| :--- | :--- | :--- | :--- |
+| Acme Corporation | `ADMIN` | `sarah@acme.com` | `password123` |
+| Stripe Alpha Payments | `AGENT` | `alex@stripe.com` | `password123` |
+| Free Dev Sandbox | `AGENT` | `tester@sandbox.com` | `password123` |
 
 ### 4. Run the services
 

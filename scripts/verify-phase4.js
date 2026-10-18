@@ -315,7 +315,7 @@ async function runPhase4Verification() {
 
     assert(Boolean(processedEvent), `WebSocket received TICKET_PROCESSED event!`);
     assert(
-      ['NEEDS_REVIEW', 'AUTO_RESOLVED'].includes(processedEvent.data.status),
+      ['NEEDS_REVIEW', 'READY_FOR_APPROVAL', 'AUTO_RESOLVED'].includes(processedEvent.data.status),
       `Processed ticket status is valid (${processedEvent.data.status})`
     );
     assert(

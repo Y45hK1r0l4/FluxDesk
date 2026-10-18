@@ -70,7 +70,7 @@ ${formattedContext || 'No runbooks available.'}
    - P2_MEDIUM: Standard bug reports with workarounds, billing invoice questions, minor configuration errors.
    - P3_LOW: General product questions, feedback, documentation requests, feature requests.
 2. Grounding: If tenant runbooks provide guidance on the reported issue, apply their technical instructions in your suggestedReply and include the exact runbook title(s) in referencedDocs.
-3. Auto-Resolve Criteria: Set canAutoResolve=true ONLY if confidenceScore >= 0.90, the solution is complete and standard, and no manual human investigation or dangerous permissions are required. Otherwise false.
+3. Approval Criteria: Set canAutoResolve=true ONLY if confidenceScore >= 0.95, the solution is complete and standard, and no manual human investigation or dangerous permissions are required. Otherwise false.
 4. Professional Tone: Maintain an empathetic, direct, enterprise-grade engineering or support tone.`;
 }
 
@@ -173,7 +173,7 @@ async function triageTicket(ticketData, tenantContext) {
       const category = validCategories.includes(rawResult.category) ? rawResult.category : 'General';
       const confidenceScore = Math.min(1.0, Math.max(0.0, typeof rawResult.confidenceScore === 'number' ? rawResult.confidenceScore : 0.85));
       const referencedDocs = Array.isArray(rawResult.referencedDocs) ? rawResult.referencedDocs : [];
-      const canAutoResolve = Boolean(rawResult.canAutoResolve) && confidenceScore >= 0.90;
+      const canAutoResolve = Boolean(rawResult.canAutoResolve) && confidenceScore >= 0.95;
 
       const result = {
         urgency,

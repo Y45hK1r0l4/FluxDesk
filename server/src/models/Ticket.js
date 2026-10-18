@@ -63,7 +63,7 @@ const TicketSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['QUEUED', 'PROCESSING', 'NEEDS_REVIEW', 'AUTO_RESOLVED', 'RESOLVED', 'CLOSED'],
+      enum: ['QUEUED', 'PROCESSING', 'NEEDS_REVIEW', 'READY_FOR_APPROVAL', 'AUTO_RESOLVED', 'RESOLVED', 'CLOSED'],
       default: 'QUEUED',
       index: true,
     },

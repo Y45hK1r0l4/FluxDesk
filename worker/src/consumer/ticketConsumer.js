@@ -94,7 +94,7 @@ async function processMessage({ topic, partition, message, heartbeat }) {
       if (heartbeat) await heartbeat();
 
       // Step C: Persist to MongoDB (Compound Index Isolation)
-      const finalStatus = aiResult.canAutoResolve ? 'AUTO_RESOLVED' : 'NEEDS_REVIEW';
+      const finalStatus = aiResult.canAutoResolve ? 'READY_FOR_APPROVAL' : 'NEEDS_REVIEW';
       const now = new Date();
 
       const updatedTicket = await Ticket.findOneAndUpdate(
