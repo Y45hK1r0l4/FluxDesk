@@ -23,7 +23,7 @@ In standard web applications, when a customer submits a ticket, the API server h
 
 ---
 
-### The Solution: How FluxDesk Solves It
+## The Solution: How FluxDesk Solves It
 
 FluxDesk decouples high-speed request intake from background AI reasoning using an event-driven distributed architecture:
 
