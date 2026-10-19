@@ -2,7 +2,7 @@
 
 # FluxDesk
 
-**Real-Time Customer Support Ingestion & AI Triage Engine**
+**Real-Time Customer Support Ingestion & AI Triage System**
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933.svg)
@@ -12,7 +12,7 @@
 
 </div>
 
-**FluxDesk** is a high-throughput, multi-tenant backend engine that connects incoming customer support requests to internal support teams. It acts as an intelligent shock absorber: it absorbs ticket bursts instantly, uses background AI workers to analyze urgency and draft responses against company runbooks, and streams live updates directly to support agents' screens without page refreshes.
+**FluxDesk** is a high-throughput, multi-tenant backend system that connects incoming customer support requests to internal support teams. It acts as an intelligent shock absorber: it absorbs ticket bursts instantly, uses background AI workers to analyze urgency and draft responses against company runbooks, and streams live updates directly to support agents' screens without page refreshes.
 
 ---
 
