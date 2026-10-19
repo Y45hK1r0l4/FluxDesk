@@ -113,6 +113,20 @@ Redis Pub/Sub channels are scoped per tenant (`tenant:{tenantId}`). The WebSocke
 
 ---
 
+## Industry Reference Implementations
+
+The architectural pattern implemented by FluxDesk—decoupled message queues for burst absorption, in-memory sliding-window rate limiting, asynchronous worker processing, and scoped real-time push—is the standard design pattern adopted by high-scale production systems:
+
+| Company | Architectural Match | Production Use Case |
+| :--- | :--- | :--- |
+| **Zendesk & Intercom** | Asynchronous ticket queuing + Background AI triage + WebSocket agent streaming | Ingests millions of support requests instantaneously; offloads AI classification and sentiment analysis to background workers before streaming live updates to agent browser sessions. |
+| **Shopify** | Kafka event shock absorber + Asynchronous worker fleets + Real-time merchant telemetry | Absorbs massive order and webhook traffic spikes during flash sales and Black Friday without blocking checkout HTTP requests or exhausting databases. |
+| **Stripe** | Sub-millisecond HTTP acceptance + Redis sliding-window rate limiting + Asynchronous event pipelines | Protects downstream APIs from burst traffic, isolates noisy tenants with microsecond-accurate rate limiters, and guarantees reliable event ingestion. |
+| **Uber** | Edge gateway + Partition-keyed Kafka logs + Asynchronous business logic + Real-time socket dispatch | Partitions incoming ride events and support issues by entity ID to guarantee strict chronological event ordering while eliminating race conditions. |
+| **Discord** | Edge WebSocket gateway + Redis state tracking + Scoped channel multiplexing | Manages millions of concurrent WebSocket connections, using isolated room multiplexing to stream real-time events with guaranteed zero cross-tenant data leakage. |
+
+---
+
 ## Event Lifecycle
 
 1. **Ingest.** `POST /api/v1/tickets` is validated and rate limited. A `TICKET_SUBMITTED` event is produced to Kafka, keyed by `tenantId`, and the client receives `202 Accepted`.
