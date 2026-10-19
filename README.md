@@ -14,8 +14,6 @@
 
 **FluxDesk** is a high-throughput, multi-tenant backend system that connects incoming customer support requests to internal support teams. It acts as an intelligent shock absorber: it absorbs ticket bursts instantly, uses background AI workers to analyze urgency and draft responses against company runbooks, and streams live updates directly to support agents' screens without page refreshes.
 
----
-
 ## The Problem: Why Traditional Systems Crash
 
 In standard web applications, when a customer submits a ticket, the API server handles everything in a single synchronous HTTP request—running validation, calling an AI model, saving to the database, and returning a response. Under production load, this architecture fails:
@@ -25,8 +23,6 @@ In standard web applications, when a customer submits a ticket, the API server h
 3. **Stale Agent Dashboards:** Without real-time event streaming, human support agents are forced to constantly refresh their browsers every 30 seconds to catch high-urgency incidents.
 4. **Cross-Tenant Data Leakage:** In naive real-time systems, an improperly scoped event broadcast can leak Company A's sensitive customer tickets into Company B's browser session.
 
----
-
 ## The Solution: How FluxDesk Solves It
 
 FluxDesk decouples high-speed request intake from background AI reasoning using an event-driven distributed architecture:
@@ -35,8 +31,6 @@ FluxDesk decouples high-speed request intake from background AI reasoning using 
 2. **Sliding-Window Rate Limiting (Redis ZSET):** Enforces microsecond-accurate request quotas per organization tier (Enterprise: 60/min, Pro: 30/min, Free: 5/min) to isolate burst spikes and completely eliminate noisy-neighbor starvation.
 3. **Asynchronous AI Triage (Worker Pool):** Background workers consume tickets from Kafka partitions, cross-reference internal company runbook documentation, and use LLM APIs to classify urgency (P0 to P3), categorize the issue, and generate grounded draft replies.
 4. **Zero-Leakage Real-Time Streaming (WebSockets + Redis Pub/Sub):** As soon as a ticket is ingested or triaged, Redis Pub/Sub multiplexes the event directly to that specific tenant's authenticated **WebSocket room** in `<20ms`, updating the agent's screen live with guaranteed 0% cross-tenant data leakage.
-
----
 
 ## Tech Stack
 
@@ -49,8 +43,6 @@ FluxDesk decouples high-speed request intake from background AI reasoning using 
 | AI inference | Google Gemini |
 | Real-time transport | WebSocket |
 | Local infrastructure | Docker Compose |
-
----
 
 ## System Architecture
 
@@ -79,8 +71,6 @@ flowchart LR
         WSGateway -->|Tenant-Scoped Push| Subscribers[Connected Agent Clients]
     end
 ```
-
----
 
 ## Design Principles
 
@@ -111,8 +101,6 @@ Workers consume Kafka partitions keyed by `tenantId`. Each worker loads the tena
 
 Redis Pub/Sub channels are scoped per tenant (`tenant:{tenantId}`). The WebSocket Gateway keeps authenticated connections in dedicated per-tenant sets, so agents receive only the events for their own organization.
 
----
-
 ## Industry Reference Implementations
 
 The architectural pattern implemented by FluxDesk—decoupled message queues for burst absorption, in-memory sliding-window rate limiting, asynchronous worker processing, and scoped real-time push—is the standard design pattern adopted by high-scale production systems:
@@ -125,8 +113,6 @@ The architectural pattern implemented by FluxDesk—decoupled message queues for
 | **Uber** | Edge gateway + Partition-keyed Kafka logs + Asynchronous business logic + Real-time socket dispatch | Partitions incoming ride events and support issues by entity ID to guarantee strict chronological event ordering while eliminating race conditions. |
 | **Discord** | Edge WebSocket gateway + Redis state tracking + Scoped channel multiplexing | Manages millions of concurrent WebSocket connections, using isolated room multiplexing to stream real-time events with guaranteed zero cross-tenant data leakage. |
 
----
-
 ## Event Lifecycle
 
 1. **Ingest.** `POST /api/v1/tickets` is validated and rate limited. A `TICKET_SUBMITTED` event is produced to Kafka, keyed by `tenantId`, and the client receives `202 Accepted`.
@@ -134,8 +120,6 @@ The architectural pattern implemented by FluxDesk—decoupled message queues for
 3. **Process.** Workers consume the event, retrieve tenant runbooks, query Gemini, and persist the result to MongoDB.
 4. **Publish.** The worker emits a completion event to the `ticket.processed` topic.
 5. **Push.** The Gateway consumes the processed event, broadcasts it through Redis Pub/Sub, and delivers `TICKET_PROCESSED` to authenticated agent sessions.
-
----
 
 ## Getting Started
 
@@ -220,20 +204,6 @@ npm run dev:worker
 | HTTP API | `http://localhost:4000` |
 | WebSocket Gateway | `ws://localhost:4000/ws` |
 | Worker health and metrics | `http://localhost:4001` |
-
----
-
-## Configuration
-
-Configuration is read from environment variables. A template is provided in `.env.example`.
-
-| Variable | Required | Description |
-| :--- | :--- | :--- |
-| `GEMINI_API_KEY` | Yes | API key used by workers for Google Gemini inference |
-
-Refer to `.env.example` for the full list of supported variables.
-
----
 
 ## API Reference
 
@@ -524,8 +494,6 @@ Returns active WebSocket connections, tenant distribution, and consumer group ac
 
 **Headers:** `Authorization: Bearer <jwt_token>` or `x-api-key`
 
----
-
 ## Testing
 
 Run the automated verification suite:
@@ -542,8 +510,6 @@ npm test
 | AI triage validation | Structured schema compliance, grounding accuracy, and confidence threshold behavior |
 | WebSocket loop | Ping/pong heartbeats and frame delivery across tenant rooms |
 
----
-
 ## Observability
 
 | Component | Endpoint | Purpose |
@@ -554,13 +520,9 @@ npm test
 | Kafka UI | `http://localhost:8080/` | Topic partitions, consumer offsets, message inspection |
 | Redis Commander | `http://localhost:8081/` | Rate limit sorted sets and Pub/Sub channels |
 
----
-
 ## Documentation
 
 Message schemas, partition hashing, backpressure controls, and failure recovery are described in [Architecture RFC-001](docs/system-design-rfc.md).
-
----
 
 ## License
 
